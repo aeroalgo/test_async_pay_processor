@@ -1,0 +1,9 @@
+from typing import Protocol
+
+
+class MessagePublisher(Protocol):
+    async def connect(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    async def publish_payment_new(self, payload: dict) -> None: ...

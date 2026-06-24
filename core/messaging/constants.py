@@ -1,0 +1,7 @@
+PAYMENTS_EXCHANGE = "payments"
+PAYMENTS_DLX_EXCHANGE = "payments.dlx"
+PAYMENTS_NEW_QUEUE = "payments.new"
+PAYMENTS_NEW_DLQ = "payments.new.dlq"
+PAYMENTS_NEW_ROUTING_KEY = "payments.new"
+PAYMENTS_DLQ_ROUTING_KEY = "payments.new.dlq"
+PAYMENTS_NEW_EVENT = "payments.new"
