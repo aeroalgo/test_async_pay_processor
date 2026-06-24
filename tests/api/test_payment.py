@@ -9,11 +9,6 @@ from core.database.session import get_session
 
 pytestmark = pytest.mark.integration
 
-API_HEADERS = {
-    "X-API-Key": "test-api-key",
-    "Idempotency-Key": "test-idempotency-key",
-}
-
 PAYMENT_BODY = {
     "amount": "100.50",
     "currency": "RUB",
@@ -37,8 +32,8 @@ def _poll_until(assertion, *, timeout_sec: float = 20.0, interval_sec: float = 0
     raise AssertionError("polling timed out without assertion result")
 
 
-def test_create_payment_returns_202(test_client):
-    headers = {**API_HEADERS, "Idempotency-Key": str(uuid4())}
+def test_create_payment_returns_202(test_client, api_headers):
+    headers = {**api_headers, "Idempotency-Key": str(uuid4())}
     response = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
     assert response.status_code == 202
     payload = response.json()
@@ -55,15 +50,14 @@ def test_create_payment_without_api_key_returns_401(test_client):
     assert response.status_code == 401
 
 
-def test_create_payment_without_idempotency_key_returns_422(test_client):
-    headers = {"X-API-Key": "test-api-key"}
-    response = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
+def test_create_payment_without_idempotency_key_returns_422(test_client, api_headers):
+    response = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=api_headers)
     assert response.status_code == 422
 
 
-def test_create_payment_idempotent_returns_same_payment(test_client):
+def test_create_payment_idempotent_returns_same_payment(test_client, api_headers):
     idempotency_key = str(uuid4())
-    headers = {**API_HEADERS, "Idempotency-Key": idempotency_key}
+    headers = {**api_headers, "Idempotency-Key": idempotency_key}
     first = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
     second = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
     assert first.status_code == 202
@@ -71,9 +65,9 @@ def test_create_payment_idempotent_returns_same_payment(test_client):
     assert first.json()["data"]["payment_id"] == second.json()["data"]["payment_id"]
 
 
-def test_create_payment_same_key_different_body_returns_409(test_client):
+def test_create_payment_same_key_different_body_returns_409(test_client, api_headers):
     idempotency_key = str(uuid4())
-    headers = {**API_HEADERS, "Idempotency-Key": idempotency_key}
+    headers = {**api_headers, "Idempotency-Key": idempotency_key}
     first = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
     assert first.status_code == 202
     other_body = {**PAYMENT_BODY, "amount": "200.00"}
@@ -81,12 +75,12 @@ def test_create_payment_same_key_different_body_returns_409(test_client):
     assert second.status_code == 409
 
 
-def test_get_payment_returns_details(test_client):
+def test_get_payment_returns_details(test_client, api_headers):
     idempotency_key = str(uuid4())
-    headers = {**API_HEADERS, "Idempotency-Key": idempotency_key}
+    headers = {**api_headers, "Idempotency-Key": idempotency_key}
     created = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
     payment_id = created.json()["data"]["payment_id"]
-    response = test_client.get(f"/api/v1/payments/{payment_id}", headers={"X-API-Key": "test-api-key"})
+    response = test_client.get(f"/api/v1/payments/{payment_id}", headers=api_headers)
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["payment_id"] == payment_id
@@ -102,18 +96,18 @@ def test_get_payment_returns_details(test_client):
     assert data["failure_reason"] is None
 
 
-def test_get_payment_not_found_returns_404(test_client):
+def test_get_payment_not_found_returns_404(test_client, api_headers):
     response = test_client.get(
         f"/api/v1/payments/{uuid4()}",
-        headers={"X-API-Key": "test-api-key"},
+        headers=api_headers,
     )
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_create_payment_creates_outbox_record(test_client):
+async def test_create_payment_creates_outbox_record(test_client, api_headers):
     idempotency_key = str(uuid4())
-    headers = {**API_HEADERS, "Idempotency-Key": idempotency_key}
+    headers = {**api_headers, "Idempotency-Key": idempotency_key}
     response = test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
     assert response.status_code == 202
     payment_id = response.json()["data"]["payment_id"]
@@ -132,9 +126,9 @@ async def test_create_payment_creates_outbox_record(test_client):
 
 
 @pytest.mark.asyncio
-async def test_create_payment_idempotent_does_not_duplicate_outbox(test_client):
+async def test_create_payment_idempotent_does_not_duplicate_outbox(test_client, api_headers):
     idempotency_key = str(uuid4())
-    headers = {**API_HEADERS, "Idempotency-Key": idempotency_key}
+    headers = {**api_headers, "Idempotency-Key": idempotency_key}
     test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
     test_client.post("/api/v1/payments", json=PAYMENT_BODY, headers=headers)
 
@@ -145,16 +139,16 @@ async def test_create_payment_idempotent_does_not_duplicate_outbox(test_client):
         break
 
 
-def test_payment_processing_retries_webhook_until_success(test_client, webhook_base_url):
+def test_payment_processing_retries_webhook_until_success(test_client, api_headers, webhook_base_url):
     hook_id = str(uuid4())
     configure_response = test_client.put(
         f"/api/v1/test-hooks/{hook_id}/config",
-        headers={"X-API-Key": "test-api-key"},
+        headers=api_headers,
         json={"failures_before_success": 2},
     )
     assert configure_response.status_code == 200
 
-    headers = {**API_HEADERS, "Idempotency-Key": str(uuid4())}
+    headers = {**api_headers, "Idempotency-Key": str(uuid4())}
     create_response = test_client.post(
         "/api/v1/payments",
         json={
@@ -169,7 +163,7 @@ def test_payment_processing_retries_webhook_until_success(test_client, webhook_b
     def assert_processed():
         payment_response = test_client.get(
             f"/api/v1/payments/{payment_id}",
-            headers={"X-API-Key": "test-api-key"},
+            headers=api_headers,
         )
         assert payment_response.status_code == 200
         payment = payment_response.json()["data"]
@@ -181,7 +175,7 @@ def test_payment_processing_retries_webhook_until_success(test_client, webhook_b
     def assert_hook_received():
         hook_response = test_client.get(
             f"/api/v1/test-hooks/{hook_id}",
-            headers={"X-API-Key": "test-api-key"},
+            headers=api_headers,
         )
         assert hook_response.status_code == 200
         hook = hook_response.json()["data"]
@@ -194,16 +188,16 @@ def test_payment_processing_retries_webhook_until_success(test_client, webhook_b
     _poll_until(assert_hook_received, timeout_sec=25.0)
 
 
-def test_payment_processing_stops_after_max_webhook_retries(test_client, webhook_base_url):
+def test_payment_processing_stops_after_max_webhook_retries(test_client, api_headers, webhook_base_url):
     hook_id = str(uuid4())
     configure_response = test_client.put(
         f"/api/v1/test-hooks/{hook_id}/config",
-        headers={"X-API-Key": "test-api-key"},
+        headers=api_headers,
         json={"failures_before_success": 10},
     )
     assert configure_response.status_code == 200
 
-    headers = {**API_HEADERS, "Idempotency-Key": str(uuid4())}
+    headers = {**api_headers, "Idempotency-Key": str(uuid4())}
     create_response = test_client.post(
         "/api/v1/payments",
         json={
@@ -218,7 +212,7 @@ def test_payment_processing_stops_after_max_webhook_retries(test_client, webhook
     def assert_processed():
         payment_response = test_client.get(
             f"/api/v1/payments/{payment_id}",
-            headers={"X-API-Key": "test-api-key"},
+            headers=api_headers,
         )
         assert payment_response.status_code == 200
         payment = payment_response.json()["data"]
@@ -230,7 +224,7 @@ def test_payment_processing_stops_after_max_webhook_retries(test_client, webhook
     def assert_hook_failed_after_retries():
         hook_response = test_client.get(
             f"/api/v1/test-hooks/{hook_id}",
-            headers={"X-API-Key": "test-api-key"},
+            headers=api_headers,
         )
         assert hook_response.status_code == 200
         hook = hook_response.json()["data"]
@@ -241,17 +235,17 @@ def test_payment_processing_stops_after_max_webhook_retries(test_client, webhook
     _poll_until(assert_hook_failed_after_retries, timeout_sec=25.0)
 
 
-def test_idempotent_create_triggers_single_webhook_delivery(test_client, webhook_base_url):
+def test_idempotent_create_triggers_single_webhook_delivery(test_client, api_headers, webhook_base_url):
     hook_id = str(uuid4())
     configure_response = test_client.put(
         f"/api/v1/test-hooks/{hook_id}/config",
-        headers={"X-API-Key": "test-api-key"},
+        headers=api_headers,
         json={"failures_before_success": 0},
     )
     assert configure_response.status_code == 200
 
     idempotency_key = str(uuid4())
-    headers = {**API_HEADERS, "Idempotency-Key": idempotency_key}
+    headers = {**api_headers, "Idempotency-Key": idempotency_key}
     body = {
         **PAYMENT_BODY,
         "webhook_url": f"{webhook_base_url}/api/v1/test-hooks/{hook_id}/deliver",
@@ -266,7 +260,7 @@ def test_idempotent_create_triggers_single_webhook_delivery(test_client, webhook
     def assert_hook_delivered_once():
         hook_response = test_client.get(
             f"/api/v1/test-hooks/{hook_id}",
-            headers={"X-API-Key": "test-api-key"},
+            headers=api_headers,
         )
         assert hook_response.status_code == 200
         hook = hook_response.json()["data"]

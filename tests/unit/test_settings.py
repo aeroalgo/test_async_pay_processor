@@ -4,6 +4,7 @@ import pytest
 
 
 def test_settings_loads_from_env(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "testing")
     monkeypatch.setenv("API_KEY", "my-secret-key")
     monkeypatch.setenv("POSTGRES_URI", "postgresql+asyncpg://u:p@localhost/db")
     monkeypatch.setenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")

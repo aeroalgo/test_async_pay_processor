@@ -1,28 +1,16 @@
 import asyncio
-import os
 import subprocess
 import sys
 from pathlib import Path
-
-os.environ.setdefault("ENVIRONMENT", "testing")
-os.environ.setdefault(
-    "POSTGRES_URI",
-    "postgresql+asyncpg://payments:payments@localhost:5432/payments",
-)
-os.environ.setdefault("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-os.environ.setdefault("API_KEY", "test-api-key")
-os.environ.setdefault("OUTBOX_POLL_INTERVAL_SEC", "60")
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-import app.model  # noqa: F401
-from core.settings import get_settings
+from core.settings import settings
 
-get_settings.cache_clear()
-TEST_POSTGRES_URI = "postgresql+asyncpg://payments:payments@localhost:5432/payments"
+import app.model  # noqa: F401
 
 
 def pytest_configure(config):
@@ -36,18 +24,8 @@ def pytest_configure(config):
         raise RuntimeError("prepare_test_db failed")
 
 
-@pytest.fixture(autouse=True)
-def _env(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT", "testing")
-    monkeypatch.setenv("POSTGRES_URI", TEST_POSTGRES_URI)
-    monkeypatch.setenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-    monkeypatch.setenv("API_KEY", "test-api-key")
-    monkeypatch.setenv("OUTBOX_POLL_INTERVAL_SEC", "60")
-    get_settings.cache_clear()
-
-
 async def _truncate_tables() -> None:
-    engine = create_async_engine(TEST_POSTGRES_URI, poolclass=NullPool)
+    engine = create_async_engine(settings.POSTGRES_URI, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.execute(
             sa.text("TRUNCATE TABLE outbox, payments RESTART IDENTITY CASCADE")
@@ -64,7 +42,7 @@ def clean_payments_tables():
 
 @pytest.fixture(scope="session")
 def test_engine():
-    engine = create_async_engine(TEST_POSTGRES_URI, poolclass=NullPool)
+    engine = create_async_engine(settings.POSTGRES_URI, poolclass=NullPool)
     return engine
 
 

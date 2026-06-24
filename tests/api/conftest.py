@@ -9,9 +9,27 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
+from core.settings import get_settings, settings
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASE_URL = "http://127.0.0.1:8001"
+
+
+def _subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENVIRONMENT": settings.ENVIRONMENT,
+            "POSTGRES_URI": settings.POSTGRES_URI,
+            "RABBITMQ_URL": settings.RABBITMQ_URL,
+            "API_KEY": settings.API_KEY,
+            "OUTBOX_POLL_INTERVAL_SEC": str(settings.OUTBOX_POLL_INTERVAL_SEC),
+            "WEBHOOK_MAX_RETRIES": str(settings.WEBHOOK_MAX_RETRIES),
+            "WEBHOOK_RETRY_BASE_DELAY_SEC": str(settings.WEBHOOK_RETRY_BASE_DELAY_SEC),
+        }
+    )
+    return env
 
 
 def _is_server_ready(base_url: str) -> bool:
@@ -33,17 +51,8 @@ def _wait_for_server(base_url: str, timeout_sec: float = 15.0) -> None:
 
 def _start_server(base_url: str) -> subprocess.Popen[bytes]:
     parsed = urlparse(base_url)
-    host = parsed.hostname or "127.0.0.1"
     port = str(parsed.port or 8001)
-    env = os.environ.copy()
-    env.setdefault("ENVIRONMENT", "testing")
-    env.setdefault(
-        "POSTGRES_URI",
-        "postgresql+asyncpg://payments:payments@localhost:5432/payments",
-    )
-    env.setdefault("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-    env.setdefault("API_KEY", "test-api-key")
-    env["OUTBOX_POLL_INTERVAL_SEC"] = "1"
+    env = _subprocess_env()
     return subprocess.Popen(
         [
             sys.executable,
@@ -63,16 +72,6 @@ def _start_server(base_url: str) -> subprocess.Popen[bytes]:
 
 
 def _start_consumer() -> subprocess.Popen[bytes]:
-    env = os.environ.copy()
-    env.setdefault("ENVIRONMENT", "testing")
-    env.setdefault(
-        "POSTGRES_URI",
-        "postgresql+asyncpg://payments:payments@localhost:5432/payments",
-    )
-    env.setdefault("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-    env.setdefault("API_KEY", "test-api-key")
-    env.setdefault("WEBHOOK_MAX_RETRIES", "3")
-    env.setdefault("WEBHOOK_RETRY_BASE_DELAY_SEC", "1")
     return subprocess.Popen(
         [
             sys.executable,
@@ -80,18 +79,17 @@ def _start_consumer() -> subprocess.Popen[bytes]:
             "import asyncio; from consumer.main import app; asyncio.run(app.run())",
         ],
         cwd=PROJECT_ROOT,
-        env=env,
+        env=_subprocess_env(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
 
 def _resolve_api_key(base_url: str) -> str:
+    configured_key = get_settings().API_KEY
     candidates = [
         os.getenv("TEST_API_KEY"),
-        os.getenv("API_KEY"),
-        "dev-api-key-change-me",
-        "test-api-key",
+        configured_key,
     ]
     for candidate in candidates:
         if not candidate:

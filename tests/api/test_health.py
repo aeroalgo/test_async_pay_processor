@@ -22,10 +22,10 @@ def test_protected_route_with_invalid_api_key_returns_401(test_client):
     assert response.status_code == 401
 
 
-def test_protected_route_with_valid_api_key_returns_200(test_client):
+def test_protected_route_with_valid_api_key_returns_200(test_client, api_headers):
     response = test_client.get(
         "/api/v1/health/protected",
-        headers={"X-API-Key": "test-api-key"},
+        headers=api_headers,
     )
     assert response.status_code == 200
     assert response.json() == {"authenticated": True}
